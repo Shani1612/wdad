@@ -5,7 +5,7 @@
   <title>Hand Detector → Arduino UNO</title>
   <style>
     body { font-family: Arial; text-align: center; }
-    video { width: 60%; border: 2px solid black; border-radius: 10px; }
+    canvas { border: 2px solid black; border-radius: 10px; }
     #number { font-size: 80px; margin-top: 20px; }
     button { padding: 15px; font-size: 20px; margin: 15px; }
   </style>
@@ -14,7 +14,8 @@
 
 <h1>Hand Detector → Arduino UNO</h1>
 
-<video id="video" autoplay></video>
+<video id="video" autoplay style="display:none;"></video>
+<canvas id="canvas" width="640" height="480"></canvas>
 <div id="number">?</div>
 
 <button id="connect">Connect to Arduino</button>
@@ -34,39 +35,31 @@ document.getElementById("connect").onclick = async () => {
         writer = port.writable.getWriter();
         alert("Connected to Arduino UNO!");
     } catch(err) {
-        alert("Connection failed");
+        alert("Connection failed: " + err);
     }
 };
 
 // פונקציית ספירת אצבעות
 function countFingers(hand) {
-    // ראשי אצבעות
     const tipIds = [4, 8, 12, 16, 20];
-
     let fingers = [];
 
-    // ----- ספירת אגודל -----
-    // בדיקה אמיתית: אם המרחק בין האגודל לאצבע הראשונה גדול, האגודל "פתוח"
     let thumbIsOpen = hand[4].x > hand[3].x ? 1 : 0;
     fingers.push(thumbIsOpen);
 
-    // ----- שאר האצבעות -----
     for (let i = 1; i < 5; i++) {
         let tip = tipIds[i];
         let pip = tip - 2;
-
-        if (hand[tip].y < hand[pip].y) {
-            fingers.push(1);
-        } else {
-            fingers.push(0);
-        }
+        fingers.push(hand[tip].y < hand[pip].y ? 1 : 0);
     }
 
     return fingers.reduce((a,b)=>a+b,0);
 }
 
-
 const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
 navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
     video.srcObject = stream;
 });
@@ -83,24 +76,34 @@ hands.setOptions({
 });
 
 hands.onResults(async results => {
-    if (!results.multiHandLandmarks.length) return;
+    ctx.save();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
-    let hand = results.multiHandLandmarks[0];
-    let fingers = countFingers(hand);
+    if (results.multiHandLandmarks.length) {
+        for (const landmarks of results.multiHandLandmarks) {
+            // ציור היד
+            drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+            drawLandmarks(ctx, landmarks, {color: '#FF0000', lineWidth: 2});
 
-    document.getElementById("number").innerText = fingers;
+            let fingers = countFingers(landmarks);
+            document.getElementById("number").innerText = fingers;
 
-    if (writer) {
-        try {
-            await writer.write(new TextEncoder().encode(fingers + "\n"));
-        } catch(e) {}
+            if (writer) {
+                try {
+                    await writer.write(new TextEncoder().encode(fingers + "\n"));
+                } catch(e) {}
+            }
+        }
+    } else {
+        document.getElementById("number").innerText = "?";
     }
+
+    ctx.restore();
 });
 
 const camera = new Camera(video, {
-    onFrame: async () => {
-        await hands.send({ image: video });
-    },
+    onFrame: async () => { await hands.send({ image: video }); },
     width: 640,
     height: 480
 });
