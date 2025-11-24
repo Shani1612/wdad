@@ -1,45 +1,111 @@
-<!doctype html>
-<html lang="he">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Free Robux!</title>
+  <meta charset="UTF-8" />
+  <title>Hand Detector → Arduino UNO</title>
   <style>
-    body {
-      text-align: center;
-      font-family: Arial, sans-serif;
-      background-color: #f5f5f5;
-    }
-
-    h1 {
-      color: black;
-      margin-top: 50px;
-    }
-
-    button {
-      background-color: #007bff;
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 16px;
-      transition: background-color 0.3s ease;
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
+    body { font-family: Arial; text-align: center; }
+    video { width: 60%; border: 2px solid black; border-radius: 10px; }
+    #number { font-size: 80px; margin-top: 20px; }
+    button { padding: 15px; font-size: 20px; margin: 15px; }
   </style>
 </head>
-
 <body>
-  
-  <button onclick="window.location.href = 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Robux_2019_Logo_gold.svg/500px-Robux_2019_Logo_gold.svg.png'">
-    Free Robux!
-  </button>
-  <img src="https://free-robux-1.onrender.com/log" style="display:none;">
+
+<h1>Hand Detector → Arduino UNO</h1>
+
+<video id="video" autoplay></video>
+<div id="number">?</div>
+
+<button id="connect">Connect to Arduino</button>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<script>
+let port = null;
+let writer = null;
+
+document.getElementById("connect").onclick = async () => {
+    try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        writer = port.writable.getWriter();
+        alert("Connected to Arduino UNO!");
+    } catch(err) {
+        alert("Connection failed");
+    }
+};
+
+// פונקציית ספירת אצבעות
+function countFingers(hand) {
+    // ראשי אצבעות
+    const tipIds = [4, 8, 12, 16, 20];
+
+    let fingers = [];
+
+    // ----- ספירת אגודל -----
+    // בדיקה אמיתית: אם המרחק בין האגודל לאצבע הראשונה גדול, האגודל "פתוח"
+    let thumbIsOpen = hand[4].x > hand[3].x ? 1 : 0;
+    fingers.push(thumbIsOpen);
+
+    // ----- שאר האצבעות -----
+    for (let i = 1; i < 5; i++) {
+        let tip = tipIds[i];
+        let pip = tip - 2;
+
+        if (hand[tip].y < hand[pip].y) {
+            fingers.push(1);
+        } else {
+            fingers.push(0);
+        }
+    }
+
+    return fingers.reduce((a,b)=>a+b,0);
+}
+
+
+const video = document.getElementById('video');
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+    video.srcObject = stream;
+});
+
+const hands = new Hands({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.7
+});
+
+hands.onResults(async results => {
+    if (!results.multiHandLandmarks.length) return;
+
+    let hand = results.multiHandLandmarks[0];
+    let fingers = countFingers(hand);
+
+    document.getElementById("number").innerText = fingers;
+
+    if (writer) {
+        try {
+            await writer.write(new TextEncoder().encode(fingers + "\n"));
+        } catch(e) {}
+    }
+});
+
+const camera = new Camera(video, {
+    onFrame: async () => {
+        await hands.send({ image: video });
+    },
+    width: 640,
+    height: 480
+});
+camera.start();
+</script>
 
 </body>
 </html>
-
